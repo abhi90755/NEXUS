@@ -428,7 +428,7 @@ function go(name,el){
   document.getElementById('panel-'+name).classList.add('active');
 }
 
-const BASE='https://nexus-f7af.onrender.com';
+const BASE='https://nexus-f7af.onrender.com/api';
 function loading(id){document.getElementById(id).innerHTML=`<div class="loading-box"><div class="loader"></div><div class="loading-text">// fetching data…</div></div>`;}
 function err(id,msg){document.getElementById(id).innerHTML=`<div class="err">&#9888; ${msg}</div>`;}
 
