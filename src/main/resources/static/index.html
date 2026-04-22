@@ -4,6 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>NEXUS — API Explorer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"/>
 <style>
@@ -310,6 +311,13 @@ body{
 
   <nav class="sidebar">
     <div class="sidebar-label">Services</div>
+    <div class="nav-item" onclick="go('explore',this)">
+      <div class="nav-icon">📍</div>
+      <div>
+        <div class="nav-text">Explore</div>
+        <div class="nav-sub">OpenStreetMap</div>
+      </div>
+    </div>
     <div class="nav-item active" onclick="go('weather',this)">
       <div class="nav-icon">🌤</div>
       <div><div class="nav-text">Weather</div><div class="nav-sub">WeatherAPI.com</div></div>
@@ -335,7 +343,30 @@ body{
   </nav>
 
   <main class="main">
+  <section class="panel" id="panel-explore">
+      <div class="page-head">
+        <div class="page-eyebrow">Location intelligence</div>
+        <div class="page-title">EXPLORE<br/>NEARBY</div>
+        <div class="page-desc">Discover places around your current location using OpenStreetMap data.</div>
+      </div>
 
+      <div class="section-divider"><span>Action</span></div>
+
+      <button class="btn btn-accent btn-full" onclick="getUserLocation()">
+        FIND NEAR ME →
+      </button>
+
+      <div class="section-divider" style="margin-top:24px">
+        <span>Map Output</span>
+      </div>
+
+      <div id="exploreResult">
+        <div class="result-empty">// waiting for location access</div>
+      </div>
+
+      <div id="map" style="height: 400px; width: 100%; border-radius: 12px;"></div>
+      <div id="placesList" style="margin-top:16px;"></div>
+    </section>
     <section class="panel active" id="panel-weather">
       <div class="page-head">
         <div class="page-eyebrow">Real-time data</div>
@@ -389,7 +420,7 @@ body{
 
   </main>
 </div>
-
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script>
 (function(){
   const canvas=document.getElementById('bg-canvas');
@@ -428,7 +459,7 @@ function go(name,el){
   document.getElementById('panel-'+name).classList.add('active');
 }
 
-const BASE='https://nexus-f7af.onrender.com/api';
+const BASE='http://localhost:8080/api';
 function loading(id){document.getElementById(id).innerHTML=`<div class="loading-box"><div class="loader"></div><div class="loading-text">// fetching data…</div></div>`;}
 function err(id,msg){document.getElementById(id).innerHTML=`<div class="err">&#9888; ${msg}</div>`;}
 
@@ -530,6 +561,115 @@ async function fetchActivity(){
       </div>`;
   }catch(e){err('activityResult','Activity API unavailable. Check your Spring Boot backend.');}
 }
+  let map = L.map('map').setView([20, 0], 2);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {attribution: '© OpenStreetMap'}).addTo(map);
+
+  let markers = [];
+  function getUserLocation() {
+
+    if (!navigator.geolocation) {
+        err("exploreResult", "Geolocation not supported");
+        return;
+    }
+
+    loading("exploreResult");
+
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+
+        try {
+            const res = await fetch(`${BASE}/explore/nearby?lat=${lat}&lon=${lon}`);
+
+const text = await res.text();
+console.log("RAW RESPONSE:", text);
+
+let data;
+try {
+    data = JSON.parse(text);
+} catch (e) {
+    err("exploreResult", "Backend did not return valid JSON");
+    return;
+}
+
+// sometimes backend wraps data
+const places = Array.isArray(data)
+    ? data
+    : (data?.data || data?.results || []);
+
+if (!Array.isArray(places)) {
+    err("exploreResult", "Invalid backend response");
+    return;
+}
+
+showPlaces(places, lat, lon);
+
+        } catch (e) {
+            err("exploreResult", "Backend error while fetching places");
+        }
+
+    }, () => {
+        err("exploreResult", "Location permission denied");
+    });
+}
+  function showPlaces(places, lat, lon) {
+
+      document.getElementById("exploreResult").innerHTML =
+          `<div class="result-empty">// ${places.length} places found nearby</div>`;
+
+      // remove old markers
+      markers.forEach(m => map.removeLayer(m));
+      markers = [];
+
+      // move map to user location
+      map.setView([lat, lon], 14);
+
+      // user marker
+      const userMarker = L.marker([lat, lon])
+          .addTo(map)
+          .bindPopup("📍 You are here");
+
+      markers.push(userMarker);
+
+      // 🔥 LIST UI START
+      let listHTML = `<div style="display:flex;flex-direction:column;gap:10px;margin-top:12px;">`;
+
+      places.slice(0, 20).forEach((p) => {
+
+          if (!p.lat || !p.lon) return;
+
+          // map marker
+          const marker = L.marker([p.lat, p.lon])
+              .addTo(map)
+              .bindPopup(`<b>${p.name}</b><br>${p.type}`);
+
+          markers.push(marker);
+
+          // list item
+          listHTML += `
+              <div onclick="focusPlace(${p.lat}, ${p.lon})"
+                  style="
+                      padding:12px;
+                      border:1px solid rgba(255,255,255,0.1);
+                      border-radius:10px;
+                      cursor:pointer;
+                      background:rgba(255,255,255,0.03);
+                  ">
+                  <div style="font-weight:600">${p.name || "Unnamed"}</div>
+                  <div style="font-size:12px;opacity:0.6">${p.type}</div>
+              </div>
+          `;
+      });
+
+      listHTML += `</div>`;
+
+      document.getElementById("placesList").innerHTML = listHTML;
+  }
+  function focusPlace(lat, lon) {
+    map.setView([lat, lon], 17);
+  }
 </script>
 </body>
 </html>
